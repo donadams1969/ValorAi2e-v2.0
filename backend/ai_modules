@@ -1,223 +1,470 @@
-{
-  "nbformat": 4,
-  "nbformat_minor": 0,
-  "metadata": {
-    "colab": {
-      "provenance": [],
-      "authorship_tag": "ABX9TyNMiqSpZWkLqG0W3oa3RIOe",
-      "include_colab_link": true
-    },
-    "kernelspec": {
-      "name": "python3",
-      "display_name": "Python 3"
-    },
-    "language_info": {
-      "name": "python"
-    }
-  },
-  "cells": [
-    {
-      "cell_type": "markdown",
-      "metadata": {
-        "id": "view-in-github",
-        "colab_type": "text"
-      },
-      "source": [
-        "<a href=\"https://colab.research.google.com/github/donadams1969/ValorAi2e-v2.0/blob/main/backend/ai_modules\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {
-        "id": "taGl7W1msiCe"
-      },
-      "outputs": [],
-      "source": [
-        "import os\n",
-        "import time\n",
-        "import json\n",
-        "import openai\n",
-        "import functools\n",
-        "import hvac\n",
-        "import redis\n",
-        "import structlog\n",
-        "from prometheus_client import Counter, Histogram, start_http_server\n",
-        "from pybreaker import CircuitBreaker, CircuitRedisStorage\n",
-        "from tenacity import retry, stop_after_attempt, wait_exponential\n",
-        "from scrubadubdub import Scrub\n",
-        "\n",
-        "# ================== Configuration ==================\n",
-        "class APIConfig:\n",
-        "    CIRCUIT_FAIL_MAX = 5\n",
-        "    CIRCUIT_RESET_TIMEOUT = 60\n",
-        "    PROMETHEUS_PORT = 9090\n",
-        "    AUDIT_LOG_FILE = \"/var/log/ai_service/audit.log\"\n",
-        "    VAULT_ADDR = os.getenv(\"VAULT_ADDR\", \"http://localhost:8200\")\n",
-        "    VAULT_TOKEN = os.getenv(\"VAULT_TOKEN\", None)\n",
-        "\n",
-        "# ================== Monitoring Setup ==================\n",
-        "API_CALLS = Counter('ai_service_api_calls', 'Total API calls', ['operation', 'model'])\n",
-        "API_ERRORS = Counter('ai_service_api_errors', 'API errors', ['error_type'])\n",
-        "API_LATENCY = Histogram('ai_service_api_latency', 'API latency distribution', ['operation'])\n",
-        "\n",
-        "# ================== Circuit Breaker Setup ==================\n",
-        "redis_client = redis.StrictRedis()\n",
-        "storage = CircuitRedisStorage(redis_client)\n",
-        "ai_circuit = CircuitBreaker(\n",
-        "    fail_max=APIConfig.CIRCUIT_FAIL_MAX,\n",
-        "    reset_timeout=APIConfig.CIRCUIT_RESET_TIMEOUT,\n",
-        "    state_storage=storage\n",
-        ")\n",
-        "\n",
-        "# ================== Logging Setup ==================\n",
-        "scrubber = Scrub()\n",
-        "structlog.configure(\n",
-        "    processors=[\n",
-        "        structlog.processors.add_log_level,\n",
-        "        structlog.processors.TimeStamper(fmt=\"iso\"),\n",
-        "        structlog.processors.JSONRenderer(),\n",
-        "        scrubber.scrub\n",
-        "    ],\n",
-        "    context_class=dict,\n",
-        "    logger_factory=structlog.PrintLoggerFactory()\n",
-        ")\n",
-        "logger = structlog.get_logger()\n",
-        "audit_logger = structlog.PrintLoggerFactory()(file=open(APIConfig.AUDIT_LOG_FILE, \"a\"))\n",
-        "\n",
-        "# ================== Vault Secret Retrieval ==================\n",
-        "def get_vault_secret(path: str) -> str:\n",
-        "    client = hvac.Client(url=APIConfig.VAULT_ADDR, token=APIConfig.VAULT_TOKEN)\n",
-        "    secret = client.secrets.kv.v2.read_secret_version(path=path)\n",
-        "    return secret['data']['data']['value']\n",
-        "\n",
-        "# ================== Core Class ==================\n",
-        "class OpenAIManager:\n",
-        "    def __init__(self,\n",
-        "                 api_key: Optional[str] = None,\n",
-        "                 default_model: str = \"gpt-4-turbo\",\n",
-        "                 max_retries: int = 3,\n",
-        "                 initial_delay: float = 1.0):\n",
-        "        # Load API key securely\n",
-        "        self._api_key = api_key or get_vault_secret(\"openai/api-key\")\n",
-        "        openai.api_key = self._api_key\n",
-        "\n",
-        "        self.default_model = default_model\n",
-        "        self.max_retries = max_retries\n",
-        "        self.initial_delay = initial_delay\n",
-        "\n",
-        "        # Start Prometheus metrics server\n",
-        "        start_http_server(APIConfig.PROMETHEUS_PORT)\n",
-        "\n",
-        "        # Cache for prompt responses\n",
-        "        self._cached_generate_text = functools.lru_cache(maxsize=128)(self._generate_text_uncached)\n",
-        "\n",
-        "    @ai_circuit\n",
-        "    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))\n",
-        "    def get_chat_completion(self,\n",
-        "                            messages: list,\n",
-        "                            model: Optional[str] = None,\n",
-        "                            temperature: float = 0.7,\n",
-        "                            max_tokens: Optional[int] = None,\n",
-        "                            stream: bool = False) -> Optional[Union[str, any]]:\n",
-        "        \"\"\"\n",
-        "        Send chat messages to OpenAI API with retries and metrics.\n",
-        "        \"\"\"\n",
-        "        start_time = time.time()\n",
-        "        current_model = model or self.default_model\n",
-        "        operation = f\"chat_completion_{current_model}\"\n",
-        "\n",
-        "        try:\n",
-        "            with API_LATENCY.labels(operation=operation).time():\n",
-        "                response = openai.ChatCompletion.create(\n",
-        "                    model=current_model,\n",
-        "                    messages=messages,\n",
-        "                    temperature=temperature,\n",
-        "                    max_tokens=max_tokens,\n",
-        "                    stream=stream\n",
-        "                )\n",
-        "                API_CALLS.labels(operation=operation, model=current_model).inc()\n",
-        "\n",
-        "                if stream:\n",
-        "                    return response\n",
-        "                elif response.choices and response.choices[0].message:\n",
-        "                    return response.choices[0].message.content.strip()\n",
-        "                else:\n",
-        "                    logger.warning(\"Empty API response\", model=current_model)\n",
-        "                    return None\n",
-        "        except Exception as e:\n",
-        "            API_ERRORS.labels(error_type=type(e).__name__).inc()\n",
-        "            self._handle_api_error(e)\n",
-        "            raise\n",
-        "        finally:\n",
-        "            duration = time.time() - start_time\n",
-        "            logger.info(\"API request completed\",\n",
-        "                        model=current_model,\n",
-        "                        duration=duration,\n",
-        "                        operation=operation)\n",
-        "\n",
-        "    def _handle_api_error(self, e: Exception):\n",
-        "        error_type = type(e).__name__\n",
-        "        audit_logger.error(\"API security event\",\n",
-        "                           event_type=\"api_error\",\n",
-        "                           error=error_type,\n",
-        "                           timestamp=time.time(),\n",
-        "                           user_id=os.getenv(\"USER_ID\", \"system\"))\n",
-        "        if isinstance(e, openai.error.AuthenticationError):\n",
-        "            logger.critical(\"Authentication failure\", error=str(e))\n",
-        "        elif isinstance(e, openai.error.RateLimitError):\n",
-        "            logger.warning(\"Rate limit exceeded\", error=str(e))\n",
-        "        else:\n",
-        "            logger.error(\"API operation failed\", error=str(e))\n",
-        "\n",
-        "    def _generate_text_uncached(self,\n",
-        "                                prompt: str,\n",
-        "                                model: Optional[str] = None,\n",
-        "                                temperature: float = 0.7,\n",
-        "                                max_tokens: Optional[int] = None) -> Optional[str]:\n",
-        "        \"\"\"\n",
-        "        Internal method to generate text, used by cache.\n",
-        "        \"\"\"\n",
-        "        messages = [{\"role\": \"user\", \"content\": prompt}]\n",
-        "        return self.get_chat_completion(messages, model, temperature, max_tokens)\n",
-        "\n",
-        "    def generate_text(self,\n",
-        "                      prompt: str,\n",
-        "                      model: Optional[str] = None,\n",
-        "                      temperature: float = 0.7,\n",
-        "                      max_tokens: Optional[int] = None) -> Optional[str]:\n",
-        "        \"\"\"\n",
-        "        Generate response with caching for repeated prompts.\n",
-        "        \"\"\"\n",
-        "        return self._cached_generate_text(prompt, model, temperature, max_tokens)\n",
-        "\n",
-        "    def clear_cache(self):\n",
-        "        \"\"\"Clear cached responses.\"\"\"\n",
-        "        self._cached_generate_text.cache_clear()\n",
-        "        logger.info(\"Response cache cleared.\")\n",
-        "\n",
-        "# ================== Usage Example ==================\n",
-        "if __name__ == \"__main__\":\n",
-        "    try:\n",
-        "        manager = OpenAIManager()\n",
-        "        # Example: Basic prompt\n",
-        "        response = manager.get_chat_completion(\n",
-        "            [{\"role\": \"user\", \"content\": \"Explain quantum computing\"}]\n",
-        "        )\n",
-        "        print(\"Response:\", response)\n",
-        "\n",
-        "        # Example: Using generate_text with caching\n",
-        "        prompt = \"What is the capital of Canada?\"\n",
-        "        print(\"First call (API):\")\n",
-        "        print(manager.generate_text(prompt))\n",
-        "        print(\"Second call (cached):\")\n",
-        "        print(manager.generate_text(prompt))\n",
-        "        print(\"Clearing cache and re-asking:\")\n",
-        "        manager.clear_cache()\n",
-        "        print(manager.generate_text(prompt))\n",
-        "    except Exception as e:\n",
-        "        logger.exception(\"An error occurred during execution.\")\n"
-      ]
-    }
-  ]
-}
+import os
+import time
+import json # Kept for potential future use or if structured logging output is processed by other tools
+import functools
+from typing import Optional, Union, Any # Explicitly imported for type hinting
+
+import openai
+import hvac
+import redis
+import structlog
+from prometheus_client import Counter, Histogram, start_http_server
+from pybreaker import CircuitBreaker, CircuitRedisStorage
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from scrubadubdub import Scrub
+import logging.handlers # For RotatingFileHandler
+
+# ================== Configuration ==================
+class APIConfig:
+    """
+    Configuration settings for the AI service API interactions.
+    These values can be externalized to environment variables or a dedicated
+    configuration system in a real-world production setup.
+    """
+    CIRCUIT_FAIL_MAX: int = 5          # Number of consecutive failures before the circuit opens
+    CIRCUIT_RESET_TIMEOUT: int = 60    # Time in seconds before the circuit attempts to half-open
+    PROMETHEUS_PORT: int = 9090        # Port for Prometheus metrics exposure
+    AUDIT_LOG_FILE: str = "/var/log/ai_service/audit.log" # Path for the dedicated audit log file
+    AUDIT_LOG_MAX_BYTES: int = 10 * 1024 * 1024 # 10 MB max size for audit log file
+    AUDIT_LOG_BACKUP_COUNT: int = 5    # Number of backup audit log files to keep
+    VAULT_ADDR: str = os.getenv("VAULT_ADDR", "http://localhost:8200") # HashiCorp Vault address
+    VAULT_TOKEN: Optional[str] = os.getenv("VAULT_TOKEN", None) # Vault authentication token
+
+# ================== Monitoring Setup (Prometheus) ==================
+# Define Prometheus metrics. These are global as they track application-wide statistics.
+API_CALLS = Counter('ai_service_api_calls', 'Total API calls', ['operation', 'model'])
+API_ERRORS = Counter('ai_service_api_errors', 'API errors', ['error_type'])
+API_LATENCY = Histogram('ai_service_api_latency', 'API latency distribution', ['operation'])
+
+def setup_prometheus_metrics(port: int = APIConfig.PROMETHEUS_PORT):
+    """
+    Starts the Prometheus HTTP server to expose metrics.
+    This function should be called once at the application's startup.
+    """
+    try:
+        start_http_server(port)
+        structlog.get_logger().info("Prometheus metrics server started", port=port)
+    except OSError as e:
+        structlog.get_logger().error("Failed to start Prometheus metrics server", error=str(e), port=port)
+        # In a production system, you might want to exit or raise a critical error here.
+
+# ================== Circuit Breaker Setup ==================
+# Initialize Redis client for circuit breaker state storage.
+# In a production environment, consider using a connection pool and robust error handling
+# for Redis connectivity.
+try:
+    redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+    # Test connection to ensure Redis is available
+    redis_client.ping()
+    storage = CircuitRedisStorage(redis_client)
+    structlog.get_logger().info("Redis client and CircuitRedisStorage initialized successfully.")
+except redis.exceptions.ConnectionError as e:
+    structlog.get_logger().critical("Failed to connect to Redis for Circuit Breaker storage. Circuit breaker will not function correctly.", error=str(e))
+    # Fallback to in-memory storage or exit, depending on criticality
+    storage = None # Or CircuitMemoryStorage() if pybreaker supports a fallback directly
+    # For this example, we'll let `ai_circuit` handle the storage being None,
+    # which will cause an error if storage is strictly required.
+    # In a real app, you'd likely have a more robust fallback or fail-fast.
+
+# Configure the Circuit Breaker.
+# It uses Redis to maintain its state across multiple instances of the service.
+ai_circuit = CircuitBreaker(
+    fail_max=APIConfig.CIRCUIT_FAIL_MAX,
+    reset_timeout=APIConfig.CIRCUIT_RESET_TIMEOUT,
+    state_storage=storage
+)
+structlog.get_logger().info("Circuit Breaker initialized.",
+                             fail_max=APIConfig.CIRCUIT_FAIL_MAX,
+                             reset_timeout=APIConfig.CIRCUIT_RESET_TIMEOUT)
+
+# ================== Logging Setup ==================
+# Initialize PII scrubber for sensitive data redaction in logs.
+scrubber = Scrub()
+
+# Configure structlog for structured JSON logging.
+structlog.configure(
+    processors=[
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        scrubber.scrub, # Apply PII scrubbing before rendering
+        structlog.processors.JSONRenderer(), # Render logs as JSON
+    ],
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory() # Outputs to stdout/stderr by default
+)
+logger = structlog.get_logger()
+logger.info("Main logger configured.")
+
+# Configure a separate audit logger with file rotation.
+# This ensures that audit logs are kept separate and managed for size.
+try:
+    audit_handler = logging.handlers.RotatingFileHandler(
+        APIConfig.AUDIT_LOG_FILE,
+        maxBytes=APIConfig.AUDIT_LOG_MAX_BYTES,
+        backupCount=APIConfig.AUDIT_LOG_BACKUP_COUNT
+    )
+    # Create a basic formatter for the audit log (can be structured if preferred)
+    audit_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    audit_handler.setFormatter(audit_formatter)
+
+    # Use a standard Python logger for audit, as structlog's PrintLoggerFactory
+    # doesn't directly support RotatingFileHandler. We can still use structlog
+    # to format the message before passing it to the audit_logger.
+    audit_logger_std = logging.getLogger('audit_log')
+    audit_logger_std.setLevel(logging.INFO) # Set appropriate level for audit
+    audit_logger_std.addHandler(audit_handler)
+    audit_logger_std.propagate = False # Prevent logs from going to root logger
+
+    logger.info("Audit logger configured with RotatingFileHandler.",
+                file=APIConfig.AUDIT_LOG_FILE,
+                max_bytes=APIConfig.AUDIT_LOG_MAX_BYTES,
+                backup_count=APIConfig.AUDIT_LOG_BACKUP_COUNT)
+except Exception as e:
+    logger.critical("Failed to set up audit logger with file rotation. Audit logs will not be persisted.", error=str(e))
+    # Fallback to printing audit logs to console if file logging fails
+    audit_logger_std = structlog.PrintLoggerFactory()(file=open("/dev/null", "a")) # Direct to null to prevent errors if file cannot be opened.
+    logger.warning("Audit logs will not be written to file due to previous error.")
+
+
+# ================== Vault Secret Retrieval ==================
+def get_vault_secret(path: str) -> str:
+    """
+    Retrieves a secret from HashiCorp Vault.
+
+    Args:
+        path (str): The path to the secret in Vault (e.g., "openai/api-key").
+
+    Returns:
+        str: The retrieved secret value.
+
+    Raises:
+        hvac.exceptions.VaultError: If there's an issue connecting to Vault
+                                    or retrieving the secret.
+    """
+    if not APIConfig.VAULT_TOKEN:
+        logger.error("VAULT_TOKEN environment variable not set. Cannot authenticate with Vault.")
+        raise ValueError("VAULT_TOKEN is required for Vault authentication.")
+
+    try:
+        client = hvac.Client(url=APIConfig.VAULT_ADDR, token=APIConfig.VAULT_TOKEN)
+        if not client.is_authenticated():
+            logger.error("Failed to authenticate with Vault.", vault_addr=APIConfig.VAULT_ADDR)
+            raise hvac.exceptions.VaultError("Vault authentication failed.")
+
+        secret = client.secrets.kv.v2.read_secret_version(path=path)
+        if not secret or 'data' not in secret or 'data' not in secret['data'] or 'value' not in secret['data']['data']:
+            logger.error("Secret not found or malformed in Vault.", path=path)
+            raise hvac.exceptions.VaultError(f"Secret '{path}' not found or malformed.")
+
+        logger.info("Successfully retrieved secret from Vault.", path=path)
+        return secret['data']['data']['value']
+    except hvac.exceptions.VaultError as e:
+        logger.critical("Vault operation failed", error=str(e), path=path)
+        raise
+    except Exception as e:
+        logger.critical("An unexpected error occurred during Vault secret retrieval", error=str(e), path=path)
+        raise
+
+# ================== Core Class: OpenAIManager ==================
+class OpenAIManager:
+    """
+    Manages interactions with the OpenAI API, incorporating resilience,
+    observability, security, and performance optimizations.
+    """
+    def __init__(self,
+                 api_key: Optional[str] = None,
+                 default_model: str = "gpt-4-turbo",
+                 max_retries: int = 3,
+                 initial_delay: float = 1.0):
+        """
+        Initializes the OpenAIManager.
+
+        Args:
+            api_key (Optional[str]): OpenAI API key. If None, it attempts to
+                                     retrieve it from HashiCorp Vault.
+            default_model (str): The default OpenAI model to use for completions.
+            max_retries (int): Maximum number of retries for API calls.
+            initial_delay (float): Initial delay in seconds for exponential backoff retries.
+        """
+        logger.info("Initializing OpenAIManager...")
+
+        # Load API key securely, prioritizing explicit key or Vault.
+        try:
+            self._api_key = api_key or get_vault_secret("openai/api-key")
+            openai.api_key = self._api_key
+            logger.info("OpenAI API key loaded successfully.")
+        except Exception as e:
+            logger.critical("Failed to load OpenAI API key. Service cannot function without it.", error=str(e))
+            raise
+
+        self.default_model = default_model
+        self.max_retries = max_retries
+        self.initial_delay = initial_delay
+
+        # Cache for prompt responses using functools.lru_cache.
+        # This caches results of _generate_text_uncached based on its arguments.
+        self._cached_generate_text = functools.lru_cache(maxsize=128)(self._generate_text_uncached)
+        logger.info("Response cache initialized.", maxsize=128)
+
+    @ai_circuit # Apply the circuit breaker to protect the OpenAI API
+    @retry(
+        stop=stop_after_attempt(3), # Stop retrying after 3 attempts
+        wait=wait_exponential(multiplier=1, min=2, max=10), # Exponential backoff: 2s, 4s, 8s, capped at 10s
+        retry=retry_if_exception_type((
+            openai.APIConnectionError, # Network issues
+            openai.RateLimitError,     # Rate limit exceeded
+            openai.APITimeoutError,    # API call timed out
+            openai.InternalServerError # OpenAI server internal errors
+        )) # Only retry on specific OpenAI API exceptions
+    )
+    def get_chat_completion(self,
+                            messages: list,
+                            model: Optional[str] = None,
+                            temperature: float = 0.7,
+                            max_tokens: Optional[int] = None,
+                            stream: bool = False) -> Optional[Union[str, Any]]:
+        """
+        Sends chat messages to the OpenAI API with retries, circuit breaking, and metrics.
+
+        Args:
+            messages (list): A list of message dictionaries for the chat completion.
+                             E.g., [{"role": "user", "content": "Hello!"}]
+            model (Optional[str]): The specific OpenAI model to use. Defaults to self.default_model.
+            temperature (float): Controls randomness. Lower values are more deterministic.
+            max_tokens (Optional[int]): The maximum number of tokens to generate.
+            stream (bool): If True, the API response will be streamed.
+
+        Returns:
+            Optional[Union[str, Any]]: The generated text content (str) if not streaming,
+                                       or the raw streaming response object (Any) if streaming.
+                                       Returns None if no content is generated or an error occurs.
+
+        Raises:
+            Exception: Re-raises exceptions after logging and handling for circuit breaker.
+        """
+        start_time = time.time()
+        current_model = model or self.default_model
+        operation = f"chat_completion_{current_model}"
+
+        logger.info("Initiating OpenAI chat completion request.",
+                    model=current_model,
+                    stream=stream,
+                    messages_count=len(messages))
+
+        try:
+            # Measure latency using Prometheus histogram
+            with API_LATENCY.labels(operation=operation).time():
+                response = openai.ChatCompletion.create(
+                    model=current_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=stream
+                )
+            API_CALLS.labels(operation=operation, model=current_model).inc()
+            logger.info("OpenAI chat completion API call successful.", model=current_model)
+
+            if stream:
+                return response
+            elif response.choices and response.choices[0].message:
+                return response.choices[0].message.content.strip()
+            else:
+                logger.warning("Empty or unexpected API response structure.", model=current_model, response=response)
+                return None
+        except openai.AuthenticationError as e:
+            # Specific handling for authentication errors
+            API_ERRORS.labels(error_type=type(e).__name__).inc()
+            self._handle_api_error(e)
+            logger.critical("OpenAI Authentication Error: Check API key and permissions.", error=str(e))
+            raise # Re-raise to trigger circuit breaker and retries if configured for it
+        except openai.RateLimitError as e:
+            # Specific handling for rate limit errors
+            API_ERRORS.labels(error_type=type(e).__name__).inc()
+            self._handle_api_error(e)
+            logger.warning("OpenAI Rate Limit Exceeded: Slow down requests or increase quota.", error=str(e))
+            raise
+        except openai.APIError as e:
+            # Generic OpenAI API errors (e.g., bad request, server error)
+            API_ERRORS.labels(error_type=type(e).__name__).inc()
+            self._handle_api_error(e)
+            logger.error("OpenAI API Error: An issue occurred with the API request.", error=str(e))
+            raise
+        except Exception as e:
+            # Catch any other unexpected exceptions
+            API_ERRORS.labels(error_type=type(e).__name__).inc()
+            self._handle_api_error(e)
+            logger.error("An unexpected error occurred during OpenAI API call.", error=str(e))
+            raise
+        finally:
+            duration = time.time() - start_time
+            logger.info("OpenAI API request completed.",
+                        model=current_model,
+                        duration=duration,
+                        operation=operation)
+
+    def _handle_api_error(self, e: Exception):
+        """
+        Handles API errors by logging them to the audit log and general logger.
+        This provides a centralized place for error reporting and security events.
+
+        Args:
+            e (Exception): The exception object.
+        """
+        error_type = type(e).__name__
+        # Log to audit_logger_std (standard Python logger with file rotation)
+        # We format the message using structlog's capabilities before passing to audit_logger_std
+        audit_message = structlog.get_logger().bind(
+            event_type="api_error",
+            error=error_type,
+            timestamp=time.time(),
+            # In a real application, 'USER_ID' should come from an authenticated context,
+            # not just an environment variable. This is a placeholder.
+            user_id=os.getenv("USER_ID", "system_default_user")
+        ).error("API security event: OpenAI API call failed.")
+        # The above bind and error call will log to the main logger.
+        # To log specifically to audit_logger_std, we need to format it manually or
+        # use a structlog processor that directs to audit_logger_std.
+        # For simplicity here, we'll just log a string to the audit_logger_std.
+        audit_logger_std.error(f"API security event: type={error_type}, error_details={str(e)}, user_id={os.getenv('USER_ID', 'system_default_user')}")
+
+        # Log to the main structured logger with appropriate level
+        if isinstance(e, openai.AuthenticationError):
+            logger.critical("Authentication failure with OpenAI.", error=str(e))
+        elif isinstance(e, openai.RateLimitError):
+            logger.warning("Rate limit exceeded for OpenAI API.", error=str(e))
+        elif isinstance(e, openai.APIError):
+            logger.error("OpenAI API returned an error.", error=str(e))
+        else:
+            logger.error("An unhandled exception occurred during API operation.", error=str(e))
+
+    def _generate_text_uncached(self,
+                                prompt: str,
+                                model: Optional[str] = None,
+                                temperature: float = 0.7,
+                                max_tokens: Optional[int] = None) -> Optional[str]:
+        """
+        Internal method to generate text, used by the caching mechanism.
+        Converts a simple prompt into the chat messages format.
+
+        Args:
+            prompt (str): The text prompt to send to the model.
+            model (Optional[str]): The specific OpenAI model to use.
+            temperature (float): Controls randomness.
+            max_tokens (Optional[int]): The maximum number of tokens to generate.
+
+        Returns:
+            Optional[str]: The generated text content, or None on failure.
+        """
+        messages = [{"role": "user", "content": prompt}]
+        logger.debug("Generating text (uncached) from prompt.", prompt_length=len(prompt))
+        return self.get_chat_completion(messages, model, temperature, max_tokens)
+
+    def generate_text(self,
+                      prompt: str,
+                      model: Optional[str] = None,
+                      temperature: float = 0.7,
+                      max_tokens: Optional[int] = None) -> Optional[str]:
+        """
+        Generates a text response from the OpenAI API with caching for repeated prompts.
+        This method uses the lru_cache applied in the constructor.
+
+        Args:
+            prompt (str): The text prompt to send to the model.
+            model (Optional[str]): The specific OpenAI model to use.
+            temperature (float): Controls randomness.
+            max_tokens (Optional[int]): The maximum number of tokens to generate.
+
+        Returns:
+            Optional[str]: The generated text content, or None on failure.
+        """
+        logger.info("Attempting to generate text (potentially cached).", prompt_hash=hash(prompt))
+        return self._cached_generate_text(prompt, model, temperature, max_tokens)
+
+    def clear_cache(self):
+        """
+        Clears the in-memory cache for generated responses.
+        """
+        self._cached_generate_text.cache_clear()
+        logger.info("Response cache cleared.")
+
+# ================== Usage Example ==================
+if __name__ == "__main__":
+    # --- Step 1: Start Prometheus metrics server once ---
+    setup_prometheus_metrics()
+
+    # --- Step 2: Instantiate the OpenAIManager ---
+    try:
+        # For demonstration, you might want to set VAULT_ADDR and VAULT_TOKEN
+        # environment variables before running this script, or provide a dummy API key.
+        # Example: export VAULT_ADDR="http://localhost:8200"
+        #          export VAULT_TOKEN="s.some_vault_token"
+        #          export USER_ID="test_user_123"
+
+        # If you don't have Vault set up, you can pass an API key directly for testing:
+        # manager = OpenAIManager(api_key="sk-YOUR_OPENAI_API_KEY_HERE")
+        manager = OpenAIManager()
+        logger.info("OpenAIManager instance created successfully.")
+
+        # --- Step 3: Demonstrate API usage ---
+
+        # Example 1: Basic chat completion
+        print("\n--- Example 1: Basic Chat Completion ---")
+        chat_messages = [{"role": "user", "content": "Explain quantum computing in simple terms."}]
+        response_chat = manager.get_chat_completion(chat_messages)
+        if response_chat:
+            print(f"Chat Response: {response_chat[:200]}...") # Print first 200 chars
+        else:
+            print("Failed to get chat response.")
+
+        # Example 2: Using generate_text with caching
+        print("\n--- Example 2: Text Generation with Caching ---")
+        prompt_1 = "What is the capital of France?"
+        prompt_2 = "What is the capital of Germany?"
+
+        print(f"First call for '{prompt_1}' (should hit API):")
+        response_cached_1 = manager.generate_text(prompt_1)
+        print(f"Response: {response_cached_1}")
+
+        print(f"\nSecond call for '{prompt_1}' (should be cached):")
+        response_cached_2 = manager.generate_text(prompt_1)
+        print(f"Response: {response_cached_2}")
+        if response_cached_1 == response_cached_2:
+            print("(Confirmed: Response was likely served from cache)")
+        else:
+            print("(Note: Response was not from cache, check cache configuration/input)")
+
+        print(f"\nCall for '{prompt_2}' (new prompt, should hit API):")
+        response_cached_3 = manager.generate_text(prompt_2)
+        print(f"Response: {response_cached_3}")
+
+        # Example 3: Clearing cache and re-asking
+        print("\n--- Example 3: Clearing Cache ---")
+        manager.clear_cache()
+        print(f"After clearing cache, call for '{prompt_1}' again (should hit API):")
+        response_cached_4 = manager.generate_text(prompt_1)
+        print(f"Response: {response_cached_4}")
+
+        # Example 4: Demonstrating a potential error (e.g., invalid model)
+        # This might trigger a circuit breaker and retries depending on the error type.
+        print("\n--- Example 4: Demonstrating Error Handling (Invalid Model) ---")
+        try:
+            print("Attempting to call with an invalid model...")
+            manager.get_chat_completion([{"role": "user", "content": "Test"}], model="invalid-model-name")
+        except Exception as e:
+            print(f"Caught expected error: {type(e).__name__} - {e}")
+            logger.info("Error demonstration complete.")
+
+    except Exception as e:
+        logger.exception("An unrecoverable error occurred during application startup or main execution.")
+        print(f"\nApplication encountered a critical error: {e}")
+        print("Please check logs for more details.")
+
+    print("\nApplication finished. Prometheus metrics are still available at http://localhost:9090/metrics")
+    print("Press Ctrl+C to stop the Prometheus server and exit.")
+    # Keep the script running to allow Prometheus to scrape metrics
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Application stopped by user.")
+
