@@ -77,31 +77,6 @@ VALOR AI+ v2.0 is a revolutionary integration of blockchain technology, artifici
 
 ---
 
-## 📫 **Additional Contact**
-
-### **Vithu** 🛠️
-
-| Field        | Information                                            |
-| ------------ | ------------------------------------------------------ |
-| **Role**     | Technical Advisor / Lead Developer                     |
-| **Email**    | [vithu@example.com](mailto:vithu@example.com)          |
-| **Location** | San Francisco, CA                                      |
-| **GitHub**   | [@vithu](https://github.com/vithu)                     |
-| **LinkedIn** | [linkedin.com/in/vithu](https://linkedin.com/in/vithu) |
-
----
-
-## 📌 **Next Steps & Roadmap**
-
-| Phase                  | Actions                                     | Timeline   |
-| ---------------------- | ------------------------------------------- | ---------- |
-| 🛡️ **Security Audit** | Complete third-party audits                 | Immediate  |
-| 📚 **Documentation**   | Enhance technical and ethical documentation | 1-2 Months |
-| 🤝 **Partnerships**    | Engage legal and regulatory entities        | 2-4 Months |
-| 🚀 **Pilot Rollout**   | Conduct controlled pilots                   | 6 Months   |
-
----
-
 ## 🤝 **Get Involved**
 
 👉 Contributions are welcome! Join us in building a transparent, secure, and ethically governed future.
@@ -253,14 +228,14 @@ Includes:
 **Last Updated**: `May 2025`  
 **Prepared By**: `VALOR Chain Genesis Node`  
 🔗 `https://github.com/donadams1969/ValorAi2e-v2.0`
-<p align="center">
+<p align="left">
   <img src="https://img.shields.io/badge/Fortress-Wallet-%23EF476F?style=for-the-badge&logo=ethereum&logoColor=white">
   <img src="https://img.shields.io/badge/VALOR-AI%2B-%233A86FF?style=for-the-badge&logo=openai&logoColor=white">
   <img src="https://img.shields.io/badge/Security-Audited-%23FFD166?style=for-the-badge&logo=shield&logoColor=black">
 </p>
 
-<h1 align="center">🛡️ FortressDelegate.sol</h1>
-<h3 align="center">EIP-7702 Smart Wallet Logic Contract • Built for VALORChain • ZK & IPFS Ready</h3>
+<h1 align="left">🛡️ FortressDelegate.sol</h1>
+<h3 align="left">EIP-7702 Smart Wallet Logic Contract • Built for VALORChain • ZK & IPFS Ready</h3>
 
 ---
 
