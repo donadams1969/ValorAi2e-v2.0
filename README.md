@@ -171,7 +171,7 @@ MIT License – Free to use, fork, secure, and enhance.
 <p align="center">
   <strong>🚨 Integrity is the final layer of armor. This wallet lives by it. 🚨</strong>
 </p>
-```
+
 # 🛡️ SAFER-X Protocol (SAFER-10)
 
 SAFER-X (SAFER-10) is the definitive cybersecurity, AI governance, quantum preparedness, and global autonomous protection standard designed to protect and future-proof VALOR AI+.
