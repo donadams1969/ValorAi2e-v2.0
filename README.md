@@ -520,92 +520,152 @@ SAFER-X (SAFER-10) is the definitive cybersecurity, AI governance, quantum prepa
 
 Adopting SAFER-X ensures VALOR AI+ maintains its global leadership in security, governance, and strategic adaptability. SAFER-X Protocol is the future of cybersecurity—autonomous, quantum-ready, decentralized, neuromorphic, and strategically exponential.
 
-
-# 🔐 VBLK Fine-Grained Personal Access Token
-
-![Status](https://img.shields.io/badge/Token-Secured-blueviolet)
-![Scope](https://img.shields.io/badge/Access-Fine--Grained-lightgrey)
-![Environment](https://img.shields.io/badge/Env-Production-critical)
-![Expiration](https://img.shields.io/badge/Expires-365_days-orange)
-![Protected](https://img.shields.io/badge/Security-ZK_Enabled-green)
+Absolutely. Below is an enhanced **GitHub Markdown README** for your **VBLK Fine-Grained Personal Access Token**, now fully **integrated with Discrete Mathematics logic** to define verifiability, finite-state security, and algorithmic behavior across VBLK token operations and smart contract interactions.
 
 ---
 
-### 🧾 **Token Name**
+# 🧠 VALOR Blockchain Layer (VBLK) – Fine-Grained Personal Access Token 🔐
+
+![Token Type](https://img.shields.io/badge/Token-Fine--Grained-blueviolet)
+![Mathematics](https://img.shields.io/badge/Discrete_Math-Enabled-green)
+![Security](https://img.shields.io/badge/Security-ZK_Proofs_Active-critical)
+![Environment](https://img.shields.io/badge/Deployment-Production-orange)
+![Audit](https://img.shields.io/badge/Audit-Trailing_on_VALORChain-blue)
+
+---
+
+## 🔐 Token Name
+
 `VBLK-CoreAccessToken-001`
 
 ---
 
-### 📘 **Purpose**
-This token grants scoped access to the core infrastructure of **Valor Blockchain Layer (VBLK)**, enabling secure operations such as:
+## 📘 Purpose
 
-- 🧬 Smart contract execution  
-- 🔗 NFT creation and document anchoring  
-- 📦 Token metadata package management  
-- 🛰️ Deployment workflows for VALORChain nodes
+This token grants **mathematically-governed**, **fine-grained access** to the **VBLK infrastructure**, supporting:
 
----
-
-### 🔍 **Scope of Permissions**
-
-| Permission Area       | Access Level       | Notes                                           |
-|-----------------------|--------------------|-------------------------------------------------|
-| `repos`               | Read/Write         | `valorchain/vblk-core`, `donadams1969/VALOR-AI` |
-| `packages`            | Read/Write         | `token-metadata`                                |
-| `workflow`            | Execute            | `anchor-deploy`, `node-sync`                    |
-| `secrets`             | Read Only          | Pull secrets for secure builds                  |
-| `environments`        | Production Only    | Access restricted to production environment     |
+- 🔗 **Smart contract state modeling**  
+- 🧬 **NFT generation with logical proofs**  
+- 🛠️ **Token minting using modular arithmetic**  
+- 📦 **Metadata management with set-theoretic enforcement**  
+- 🛰️ **Anchoring workflows guided by graph theory**
 
 ---
 
-### ❌ **Explicit Denials**
+## 🔢 Integrated Discrete Mathematics Modules
 
-- ❗ No user-level admin control  
-- ❗ No permission to delete historical blockchain/NFT records  
-- ❗ No exposure of root private keys  
-- ❗ No unverified third-party webhooks
+| Concept              | Implementation | Purpose                                       |
+|----------------------|----------------|-----------------------------------------------|
+| Set Theory           | Token classification sets | Access control, role separation             |
+| Graph Theory         | DAGs for node access | Secure directional workflow validation       |
+| Modular Arithmetic   | Token ID systems | Prevent duplicate token issuance             |
+| Logic Gates (Boolean)| CI/CD triggers | Deployment conditions and environment locks   |
+| Finite Automata      | Token lifecycle | Predictable state transitions                 |
+| Number Theory        | Hashing & Keys | Cryptographic signature validation            |
+| Combinatorics        | Smart contract variations | Optimized rule permutations             |
 
----
-
-### 🕰️ **Token Expiration Policy**
-
-- **Lifespan:** `365 days` maximum  
-- **Auto-Revoke:** After `30 minutes` of inactivity for CI/CD operations  
-
----
-
-### 📛 **Token Usage Context**
-
-> 🔧 **Component:** `VALOR AI+ LegalOps / TokenOps`  
-> 🌐 **Sec Policy:** `VALSEC-2025.02`  
-> 📂 **Anchor Layer:** VBLK → IPFS → ETH/BTC Hybrid
+> 📐 *Each permission and process is grounded in discrete, provable logic.*
 
 ---
 
-### 🔒 **Security & Audit Measures**
+## 🔍 Scope of Permissions
 
-- Enforced Zero-Knowledge (ZK) access logs  
-- Bound to SHA-256 device fingerprint  
-- Immutable transaction records sealed to `VALORChain`  
-- Realtime monitoring through `VALOR AI+ Sentinels`
+| Module                     | Level        | Mathematical Logic Applied          |
+|----------------------------|--------------|-------------------------------------|
+| `repos:valorchain/vblk-core` | Read/Write  | Set membership validation            |
+| `workflow:anchor-deploy`  | Trigger       | Boolean propositional verification   |
+| `packages:token-metadata` | Read/Write    | Graph-dependent dependency control   |
+| `environments:production` | Scoped        | Finite automaton enforcement         |
+| `secrets`                 | Read Only     | Modular number lock w/ ZK access     |
 
 ---
 
-### 🧪 Example Usage in CI/CD
+## 🚫 Explicit Denials
+
+- No admin override (non-member set exclusion)  
+- No history rewriting (immutable graph path)  
+- No private key access (prime-number key lock)  
+- No arbitrary trigger access (Boolean gate filter)
+
+---
+
+## 🕰️ Expiration Rules
+
+- **Max Lifetime:** `365 days`  
+- **Inactivity Revoke:** `30 minutes` (state = "timeout")  
+- **State Transitions:** `f(current_state, input) → next_state`  
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active
+    Active --> Idle: Inactivity > 30m
+    Idle --> Expired: Token policy timeout
+    Active --> Revoked: Security event
+````
+
+---
+
+## 🔒 Security Features
+
+* ✅ ZK-Proof of token origin
+* ✅ Transactional hash sealing using `H(x) mod p`
+* ✅ Logical constraints via AND/OR rules in deployment
+* ✅ Directed Acyclic Graph (DAG) traceability on VALORChain
+
+---
+
+## 🧠 Sample Logic: Modular Token Gate
+
+```python
+def validate_token(token_id: int, modulus: int = 17) -> bool:
+    # Accepts only token IDs congruent to 1 mod 17
+    return token_id % modulus == 1
+```
+---
+
+## 🧪 Example GitHub Workflow
 
 ```yaml
 jobs:
-  deploy-anchor:
+  deploy-vblk:
     runs-on: ubuntu-latest
     steps:
-      - name: Use VBLK Token
+      - name: Use Token with Modular Gate
         env:
           VBLK_TOKEN: ${{ secrets.VBLK_CORE_TOKEN }}
         run: |
+          if [[ $(($TOKEN_ID % 17)) -ne 1 ]]; then exit 1; fi
           ./deploy-anchor.sh --token $VBLK_TOKEN
+```
 
+---
 
-**Welcome to SAFER-X: The global benchmark in cybersecurity excellence.**
+## 🧠 Discrete Mathematics Engine Flowchart
 
+```mermaid
+graph TD
+    A[Token Creation Request] --> B{ID Valid?}
+    B -->|Yes| C[Check Permission Set]
+    C --> D{Role Matches?}
+    D -->|Yes| E[Activate Smart Contract]
+    E --> F[Anchor to VALORChain]
+    B -->|No| Z[Reject: Modular ID Failure]
+    D -->|No| Y[Reject: Unauthorized Role]
+```
+
+---
+
+## 📛 Metadata
+
+* **System:** `VALOR AI+ LegalOps / TokenOps`
+* **Security Policy:** `VALSEC-2025.02`
+* **Creator:** Donny Gillson (🛡️ [donny@18fu.ai](mailto:donny@18fu.ai))
+* **Anchor Layer:** VBLK → IPFS → ETH/BTC → Immutable Hash Graph
+
+---
+
+> ⚖️ **This token is mathematically bound and logically enforced. Any misuse triggers immediate revocation and blockchain audit.**
+
+```
 
 
