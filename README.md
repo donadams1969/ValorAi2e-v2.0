@@ -520,6 +520,91 @@ SAFER-X (SAFER-10) is the definitive cybersecurity, AI governance, quantum prepa
 
 Adopting SAFER-X ensures VALOR AI+ maintains its global leadership in security, governance, and strategic adaptability. SAFER-X Protocol is the future of cybersecurity—autonomous, quantum-ready, decentralized, neuromorphic, and strategically exponential.
 
+
+# 🔐 VBLK Fine-Grained Personal Access Token
+
+![Status](https://img.shields.io/badge/Token-Secured-blueviolet)
+![Scope](https://img.shields.io/badge/Access-Fine--Grained-lightgrey)
+![Environment](https://img.shields.io/badge/Env-Production-critical)
+![Expiration](https://img.shields.io/badge/Expires-365_days-orange)
+![Protected](https://img.shields.io/badge/Security-ZK_Enabled-green)
+
+---
+
+### 🧾 **Token Name**
+`VBLK-CoreAccessToken-001`
+
+---
+
+### 📘 **Purpose**
+This token grants scoped access to the core infrastructure of **Valor Blockchain Layer (VBLK)**, enabling secure operations such as:
+
+- 🧬 Smart contract execution  
+- 🔗 NFT creation and document anchoring  
+- 📦 Token metadata package management  
+- 🛰️ Deployment workflows for VALORChain nodes
+
+---
+
+### 🔍 **Scope of Permissions**
+
+| Permission Area       | Access Level       | Notes                                           |
+|-----------------------|--------------------|-------------------------------------------------|
+| `repos`               | Read/Write         | `valorchain/vblk-core`, `donadams1969/VALOR-AI` |
+| `packages`            | Read/Write         | `token-metadata`                                |
+| `workflow`            | Execute            | `anchor-deploy`, `node-sync`                    |
+| `secrets`             | Read Only          | Pull secrets for secure builds                  |
+| `environments`        | Production Only    | Access restricted to production environment     |
+
+---
+
+### ❌ **Explicit Denials**
+
+- ❗ No user-level admin control  
+- ❗ No permission to delete historical blockchain/NFT records  
+- ❗ No exposure of root private keys  
+- ❗ No unverified third-party webhooks
+
+---
+
+### 🕰️ **Token Expiration Policy**
+
+- **Lifespan:** `365 days` maximum  
+- **Auto-Revoke:** After `30 minutes` of inactivity for CI/CD operations  
+
+---
+
+### 📛 **Token Usage Context**
+
+> 🔧 **Component:** `VALOR AI+ LegalOps / TokenOps`  
+> 🌐 **Sec Policy:** `VALSEC-2025.02`  
+> 📂 **Anchor Layer:** VBLK → IPFS → ETH/BTC Hybrid
+
+---
+
+### 🔒 **Security & Audit Measures**
+
+- Enforced Zero-Knowledge (ZK) access logs  
+- Bound to SHA-256 device fingerprint  
+- Immutable transaction records sealed to `VALORChain`  
+- Realtime monitoring through `VALOR AI+ Sentinels`
+
+---
+
+### 🧪 Example Usage in CI/CD
+
+```yaml
+jobs:
+  deploy-anchor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Use VBLK Token
+        env:
+          VBLK_TOKEN: ${{ secrets.VBLK_CORE_TOKEN }}
+        run: |
+          ./deploy-anchor.sh --token $VBLK_TOKEN
+
+
 **Welcome to SAFER-X: The global benchmark in cybersecurity excellence.**
 
 
