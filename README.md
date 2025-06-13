@@ -1,3 +1,13 @@
+## 🧾 Licensing & Usage
+
+> This codebase is protected by VALOR-AI Blockchain Ledger.  
+> Commercial use requires a license from That’s Edutainment, LLC.
+
+![License](https://img.shields.io/badge/License-VALOR%20IP%20Protected-blue)
+🔗 [Purchase Commercial License](https://your-payment-link.com)
+
+
+
 # 🚀 **VALOR AI+ v2.0 | Comprehensive Overview**
 
 ![VALOR AI Banner](https://img.shields.io/badge/VALOR%20AI%2B-v2.0-blueviolet?style=for-the-badge\&logo=ethereum)
